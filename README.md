@@ -48,21 +48,38 @@ normally you only ever run the first command.
 
 ## Configuration
 
-Everything is an environment variable with a sensible default — nothing is
-hardcoded to one machine.
+Copy the example and edit it:
+
+```sh
+cp kurre.conf.example kurre.conf
+```
+
+`kurre.conf` is gitignored, so your host name, user name and archive path stay out
+of version control. It is looked for as `$KURRE_CONF`, then beside the scripts,
+then at `~/.config/kurre/kurre.conf`.
+
+Precedence is **environment > `kurre.conf` > built-in defaults**, so a one-off
+override needs no edit:
+
+```sh
+KURRE_HOST=otherpi ./kurre-sync.sh
+```
 
 | Variable | Default | What it is |
 |---|---|---|
-| `KURRE_HOST` | `kurre` | ssh host of the Pi |
-| `KURRE_REMOTE_HOME` | `/home/ola` | home directory on the Pi |
-| `KURRE_REMOTE_DB` | `$KURRE_REMOTE_HOME/BirdNET-Pi/scripts/birds.db` | live BirdNET-Pi database |
+| `KURRE_HOST` | `birdnet-pi` | ssh host of the Pi (a `~/.ssh/config` alias is fine) |
+| `KURRE_REMOTE_HOME` | `/home/pi` | home directory of the BirdNET-Pi user |
+| `KURRE_REMOTE_DB` | `$KURRE_REMOTE_HOME/BirdNET-Pi/scripts/birds.db` | the live database |
 | `KURRE_REMOTE_AUDIO` | `$KURRE_REMOTE_HOME/BirdSongs/Extracted/By_Date/` | extraction folder |
-| `KURRE_ARCHIVE` | `~/Library/Mobile Documents/com~apple~CloudDocs/Arkiv/kurre` | where the archive lives |
+| `KURRE_ARCHIVE` | `~/kurre-archive` | where the archive is built |
 | `KURRE_LATEST_DAYS` | `14` | rolling window on `latest.html` |
 
-```sh
-KURRE_HOST=birdpi KURRE_ARCHIVE=~/birds ./kurre-sync.sh
-```
+Normally only `KURRE_HOST`, `KURRE_REMOTE_HOME` and `KURRE_ARCHIVE` need setting —
+the two remote paths are derived from `KURRE_REMOTE_HOME`.
+
+The config file is shell syntax using `:=` assignments, so `kurre-sync.sh` sources
+it directly and `kurre-report.py` parses the same two forms. That is why an
+environment variable always wins: `:=` only assigns when unset.
 
 ## Design decisions, and why
 

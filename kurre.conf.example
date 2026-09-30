@@ -1,0 +1,32 @@
+# kurre configuration.
+#
+#   cp kurre.conf.example kurre.conf   and edit to taste.
+#
+# kurre.conf is gitignored, so your host name, user name and archive path stay
+# out of version control.
+#
+# Every line uses ":=" so that an environment variable of the same name always
+# wins. Precedence is:  environment  >  kurre.conf  >  the defaults below.
+#
+# kurre looks for the config in this order:
+#   $KURRE_CONF
+#   kurre.conf beside the scripts
+#   ~/.config/kurre/kurre.conf
+
+# ssh host of the Raspberry Pi running BirdNET-Pi. A ~/.ssh/config alias is fine.
+: "${KURRE_HOST:=birdnet-pi}"
+
+# Home directory of the BirdNET-Pi user on that Pi.
+: "${KURRE_REMOTE_HOME:=/home/pi}"
+
+# The live BirdNET-Pi database and the extraction folder. Derived from
+# KURRE_REMOTE_HOME, so normally you only need to set that one.
+: "${KURRE_REMOTE_DB:=$KURRE_REMOTE_HOME/BirdNET-Pi/scripts/birds.db}"
+: "${KURRE_REMOTE_AUDIO:=$KURRE_REMOTE_HOME/BirdSongs/Extracted/By_Date/}"
+
+# Where the archive is built on this machine: the database, the mp3s and the
+# generated HTML. Point it at a cloud folder if you want it synced.
+: "${KURRE_ARCHIVE:=$HOME/kurre-archive}"
+
+# Rolling window shown on latest.html, in days.
+: "${KURRE_LATEST_DAYS:=14}"

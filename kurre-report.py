@@ -12,7 +12,9 @@ Usage:  kurre-report.py [archive_dir]
 KURRE_LATEST_DAYS (default 14) sets the rolling window on latest.html.
 """
 import html
+import io
 import os
+import re
 import sqlite3
 import sys
 import unicodedata
@@ -20,9 +22,45 @@ import urllib.parse
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 
-ARCHIVE = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
-    "KURRE_ARCHIVE",
-    os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Arkiv/kurre"),
+def load_conf():
+    """Apply kurre.conf, without letting it override the environment.
+
+    The file is shell syntax using ':=' assignments so that kurre-sync.sh can
+    simply source it. Here we parse the same two forms rather than shelling out:
+        : "${KURRE_FOO:=value}"
+        KURRE_FOO=value
+    Looked up as $KURRE_CONF, then beside this script, then ~/.config/kurre/.
+    Returns the path used, or None.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    pats = (re.compile(r'^\s*:\s*"\$\{(KURRE_[A-Z_]+):=(.*)\}"\s*$'),
+            re.compile(r'^\s*(KURRE_[A-Z_]+)=(.*)$'))
+    for cand in (os.environ.get("KURRE_CONF"),
+                 os.path.join(here, "kurre.conf"),
+                 os.path.expanduser("~/.config/kurre/kurre.conf")):
+        if not cand or not os.path.isfile(cand):
+            continue
+        with io.open(cand, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.split("#", 1)[0].rstrip()
+                for pat in pats:
+                    m = pat.match(line)
+                    if not m:
+                        continue
+                    key, val = m.group(1), m.group(2).strip().strip('"\'')
+                    # environment always wins
+                    if key not in os.environ:
+                        os.environ[key] = os.path.expanduser(
+                            os.path.expandvars(val))
+                    break
+        return cand
+    return None
+
+
+CONF_USED = load_conf()
+
+ARCHIVE = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(
+    os.environ.get("KURRE_ARCHIVE", "~/kurre-archive")
 )
 
 E = html.escape

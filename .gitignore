@@ -19,3 +19,9 @@ birdnet.conf
 asound.conf
 
 .DS_Store
+
+# Local config: host names, user names, archive paths
+kurre.conf
+
+__pycache__/
+*.pyc

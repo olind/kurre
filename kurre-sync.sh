@@ -16,14 +16,28 @@
 #
 set -euo pipefail
 
-# All four are overridable from the environment, so the script is not tied to one
-# machine. The defaults are a stock BirdNET-Pi install plus an iCloud Drive archive.
-REMOTE="${KURRE_HOST:-kurre}"
-REMOTE_HOME="${KURRE_REMOTE_HOME:-/home/ola}"
-REMOTE_DB="${KURRE_REMOTE_DB:-$REMOTE_HOME/BirdNET-Pi/scripts/birds.db}"
-REMOTE_AUDIO="${KURRE_REMOTE_AUDIO:-$REMOTE_HOME/BirdSongs/Extracted/By_Date/}"
+# ------------------------------------------------------------- configuration --
+# Precedence: environment > kurre.conf > the defaults below. The config file uses
+# ":=" assignments, so anything already exported from the environment wins.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _c in "${KURRE_CONF:-}" "$SCRIPT_DIR/kurre.conf" "$HOME/.config/kurre/kurre.conf"; do
+  if [ -n "$_c" ] && [ -f "$_c" ]; then . "$_c"; KURRE_CONF_USED="$_c"; break; fi
+done
 
-ARCHIVE="${KURRE_ARCHIVE:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/Arkiv/kurre}"
+: "${KURRE_HOST:=birdnet-pi}"
+: "${KURRE_REMOTE_HOME:=/home/pi}"
+: "${KURRE_REMOTE_DB:=$KURRE_REMOTE_HOME/BirdNET-Pi/scripts/birds.db}"
+: "${KURRE_REMOTE_AUDIO:=$KURRE_REMOTE_HOME/BirdSongs/Extracted/By_Date/}"
+: "${KURRE_ARCHIVE:=$HOME/kurre-archive}"
+
+REMOTE="$KURRE_HOST"
+REMOTE_DB="$KURRE_REMOTE_DB"
+REMOTE_AUDIO="$KURRE_REMOTE_AUDIO"
+ARCHIVE="$KURRE_ARCHIVE"
+
+# kurre-report.py reads the same config, but export anyway so an explicit
+# environment override here is carried through to it unchanged.
+export KURRE_ARCHIVE KURRE_LATEST_DAYS
 AUDIO_DEST="$ARCHIVE/By_Date"
 ARCHIVE_DB="$ARCHIVE/birds.db"
 LOG="$ARCHIVE/sync.log"
@@ -39,6 +53,7 @@ exec > >(tee -a "$LOG") 2>&1
 say(){ printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
 say "=== kurre-sync starting${DRY_RUN:+ }$([ $DRY_RUN = 1 ] && echo '(DRY RUN)')  ==="
+say "config: ${KURRE_CONF_USED:-none found, using built-in defaults}  host=$REMOTE  archive=$ARCHIVE"
 
 # ---------------------------------------------------------------- preflight --
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$REMOTE" true 2>/dev/null \
