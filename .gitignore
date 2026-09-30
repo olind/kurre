@@ -1,0 +1,21 @@
+# Generated output — the archive, never the code
+index.html
+latest.html
+species/
+assets/
+By_Date/
+birds.db
+sync.log
+*.mp3
+*.wav
+*.png
+*.db
+
+# Local backups made before edits
+*.bak-*
+
+# Never commit BirdNET-Pi config: it holds CADDY_PWD, ICE_PWD and home coordinates
+birdnet.conf
+asound.conf
+
+.DS_Store
