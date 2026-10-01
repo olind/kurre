@@ -14,7 +14,7 @@ capture-and-detect box, and presentation moves to a machine that can afford it.
 ## What you get
 
 ```
-index.html      overview, charts, filterable table of every species
+index.html      species heard in the last 10 days, by-hour chart, every species
 latest.html     every detection from the last 14 days, newest first
 species/*.html  one page per species, every recording, shared audio player
 assets/         style.css + app.js
@@ -72,6 +72,7 @@ KURRE_HOST=otherpi ./kurre-sync.sh
 | `KURRE_REMOTE_DB` | `$KURRE_REMOTE_HOME/BirdNET-Pi/scripts/birds.db` | the live database |
 | `KURRE_REMOTE_AUDIO` | `$KURRE_REMOTE_HOME/BirdSongs/Extracted/By_Date/` | extraction folder |
 | `KURRE_ARCHIVE` | `~/kurre-archive` | where the archive is built |
+| `KURRE_RECENT_DAYS` | `10` | "Recently heard" window on `index.html` |
 | `KURRE_LATEST_DAYS` | `14` | rolling window on `latest.html` |
 
 Normally only `KURRE_HOST`, `KURRE_REMOTE_HOME` and `KURRE_ARCHIVE` need setting —
@@ -109,6 +110,12 @@ environment variable always wins: `:=` only assigns when unset.
   `Detection.common_name_safe`.
 - **Charts are inline SVG**, single-series, sequential one-hue, light and dark
   both defined explicitly. Ninety-odd species is a *table*, not ninety colours.
+- **No detections-per-day counts.** One bird sitting by the mic can log 50
+  detections in a day, so daily counts measure loitering, not birds. Species
+  pages show *days heard* instead.
+- **Recording lengths come from the file size.** BirdNET-Pi's extractions are
+  constant-bitrate MP3 with no Xing header, so `size × 8 / bitrate` is exact and
+  needs one 4-byte read per file rather than a decode.
 
 ## Note on BirdNET-Pi config
 

@@ -9,6 +9,7 @@ works from a USB drive, a zip, or file:// with no server and no network.
 
 Usage:  kurre-report.py [archive_dir]
 
+KURRE_RECENT_DAYS (default 10) sets the "Recently heard" window on index.html.
 KURRE_LATEST_DAYS (default 14) sets the rolling window on latest.html.
 """
 import html
@@ -81,6 +82,39 @@ def com_safe(name):
     return name.replace("'", "").replace(" ", "_").replace("/", "-")
 
 
+# kbps by bitrate index, MPEG-1 Layer III (all BirdNET-Pi extractions are this)
+_MP3_KBPS = (0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0)
+
+
+def mp3_seconds(path):
+    """Length of a constant-bitrate MP3 from its size and first frame header.
+
+    BirdNET-Pi's sox extractions are CBR with no Xing header (verified against
+    ffprobe: 128 kbps stereo before CHANNELS=1, 64 kbps mono after), so
+    size * 8 / bitrate is exact and costs one 4-byte read instead of a decode.
+    Returns None if the file is missing or not a plain MPEG-1 Layer III stream.
+    """
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            head = fh.read(10)
+            skip = 0
+            if head[:3] == b"ID3":  # syncsafe tag size, then the first frame
+                skip = 10 + ((head[6] << 21) | (head[7] << 14) | (head[8] << 7) | head[9])
+                fh.seek(skip)
+                head = fh.read(4)
+    except OSError:
+        return None
+    if len(head) < 4 or head[0] != 0xFF or (head[1] & 0xFE) != 0xFA:
+        return None
+    kbps = _MP3_KBPS[head[2] >> 4]
+    return (size - skip) * 8 / (kbps * 1000) if kbps else None
+
+
+def fmt_len(sec):
+    return f"{sec:.1f} s" if sec is not None else "&ndash;"
+
+
 def slugify(name, seen):
     s = unicodedata.normalize("NFKD", name)
     s = "".join(c for c in s if not unicodedata.combining(c))
@@ -97,8 +131,11 @@ def slugify(name, seen):
 # Single series throughout, so: sequential one-hue, no legend (the title names
 # it), recessive axes, selective direct labels, 2px gap between bars, 4px
 # rounded data-ends anchored to the baseline.
-def column_chart(pairs, width=880, height=180, label_every=None, pad_left=44):
-    """pairs: [(label, value, tooltip)] -> inline SVG string."""
+def column_chart(pairs, width=880, height=180, label_every=None, pad_left=44, axis=True):
+    """pairs: [(label, value, tooltip)] -> inline SVG string.
+
+    axis=False drops the value gridlines, for presence strips whose only
+    values are 0 and 1."""
     if not pairs:
         return '<p class="empty">No data.</p>'
     vals = [v for _, v, _ in pairs]
@@ -115,7 +152,7 @@ def column_chart(pairs, width=880, height=180, label_every=None, pad_left=44):
 
     # recessive gridlines + axis labels at 0, half, max
     grid = []
-    for frac in (0, 0.5, 1.0):
+    for frac in ((0, 0.5, 1.0) if axis else ()):
         y = pad_t + plot_h - frac * plot_h
         v = round(vmax * frac)
         grid.append(f'<line class="grid" x1="{pad_left}" y1="{y:.1f}" x2="{width-pad_r}" y2="{y:.1f}"/>')
@@ -186,6 +223,17 @@ def main():
         per_day[d] += 1
         per_hour[int(t[:2])] += 1
 
+    def audio(d, com, fn, prefix=""):
+        """(relative url, length cell) for one detection's recording."""
+        rel = f"By_Date/{d}/{com_safe(com)}/{fn}"
+        return prefix + U(rel), fmt_len(mp3_seconds(os.path.join(ARCHIVE, rel)))
+
+    def play_btn(src, com, d, t):
+        # A real link, so the file is still reachable if scripted playback
+        # fails; app.js intercepts the click and uses the shared player.
+        return (f'<a class="play" href="{src}" data-src="{src}" '
+                f'aria-label="Play {E(com)} {d} {t}">&#9654; Play</a>')
+
     total = len(rows)
     days = sorted(per_day)
     d0 = date.fromisoformat(days[0])
@@ -193,7 +241,6 @@ def main():
 
     # continuous day axis, so quiet days read as gaps rather than being dropped
     span = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
-    day_pairs = [(d[5:], per_day.get(d, 0), f"{d}: {per_day.get(d,0)} detections") for d in span]
     hour_pairs = [(f"{h:02d}", per_hour.get(h, 0), f"{h:02d}:00-{h:02d}:59: {per_hour.get(h,0)} detections")
                   for h in range(24)]
 
@@ -211,10 +258,34 @@ def main():
     lat = [r for r in rows if r[0] >= lat_from]
     lat_per_day = Counter(r[0] for r in lat)
     lat_species = {r[3] for r in lat}
-    lat_span = [d for d in span if d >= lat_from]
-    lat_pairs = [(d[5:], lat_per_day.get(d, 0), f"{d}: {lat_per_day.get(d,0)} detections")
-                 for d in lat_span]
     lat_n = f"{len(lat):,}".replace(",", " ")
+
+    # ---- front-page summary: one row per species per day -----------------
+    # The sync may not run daily, so the index opens on what was heard
+    # recently. Grouped by day and species (with that day's best recording)
+    # rather than every detection, since one stationary bird can produce 50
+    # rows a day; the full flat list stays on latest.html.
+    RECENT_DAYS = max(1, int(os.environ.get("KURRE_RECENT_DAYS", "10")))
+    rec_from = (d1 - timedelta(days=RECENT_DAYS - 1)).isoformat()
+    by_day_sp = defaultdict(list)
+    for r in rows:
+        if r[0] >= rec_from:
+            by_day_sp[(r[0], r[3])].append(r)
+    rrows, prev_day = [], None
+    # newest day first; within a day, most-detected species first
+    groups = sorted(by_day_sp.items(), key=lambda kv: (kv[0][0], len(kv[1])), reverse=True)
+    for (d, com), recs in groups:
+        _d, t, _sci, _com, conf, fn = max(recs, key=lambda r: r[4])
+        src, length = audio(d, com, fn)
+        cls = ' class="newday"' if d != prev_day and prev_day is not None else ""
+        prev_day = d
+        rrows.append(
+            f'<tr{cls}><td class="dt">{d}</td>'
+            f'<td class="nm"><a href="species/{slugs[com]}.html">{E(com)}</a></td>'
+            f'<td class="num">{len(recs)}</td><td class="num">{conf:.2f}</td>'
+            f'<td class="num">{length}</td><td>{play_btn(src, com, d, t)}</td></tr>'
+        )
+    rec_species = {com for _d, com in by_day_sp}
 
     # ---- index -----------------------------------------------------------
     stats = f"""<section class="kpis">
@@ -240,13 +311,16 @@ def main():
         )
 
     body = f"""{stats}
-<section class="card recent"><h2>Latest</h2>
-<p class="note">Every detection from the last {LATEST_DAYS} days &mdash; {lat_n} of them across
-{len(lat_species)} species &mdash; in one chronological list with a player.</p>
-<p><a class="cta" href="latest.html">Recent detections &rarr;</a></p></section>
-
-<section class="card"><h2>Detections per day</h2>
-{column_chart(day_pairs)}</section>
+<section class="card"><h2>Recently heard</h2>
+<p class="note">{len(rec_species)} species over the last {RECENT_DAYS} days, {rec_from} to
+{d1.isoformat()}. One row per species per day; Play gives that day's most confident recording.</p>
+<div class="player"><audio id="au" controls preload="none"></audio><span id="now" class="now"></span></div>
+<input class="filter" data-table="recent" type="search" placeholder="Filter species&hellip;" autocomplete="off">
+<div class="tablewrap"><table id="recent">
+<thead><tr><th>Date</th><th>Species</th><th class="num">Detections</th>
+<th class="num">Best</th><th class="num">Length</th><th></th></tr></thead>
+<tbody>{''.join(rrows)}</tbody></table></div>
+<p class="more"><a class="cta" href="latest.html">Every detection, last {LATEST_DAYS} days ({lat_n}) &rarr;</a></p></section>
 
 <section class="card"><h2>When the birds sing</h2>
 <p class="note">All detections by hour of day, summed across {len(days)} days.</p>
@@ -254,7 +328,7 @@ def main():
 
 <section class="card"><h2>Species</h2>
 <p class="note">{len(per_species)} species. Click a name for every recording.</p>
-<input id="filter" class="filter" type="search" placeholder="Filter species&hellip;" autocomplete="off">
+<input class="filter" data-table="sp" type="search" placeholder="Filter species&hellip;" autocomplete="off">
 <div class="tablewrap"><table id="sp">
 <thead><tr><th>Species</th><th class="num">Detections</th><th></th>
 <th class="num">Best</th><th>First</th><th>Last</th></tr></thead>
@@ -271,34 +345,29 @@ def main():
     # groups the days visually anyway.
     lrows = []
     for d, t, _sci, com, conf, fn in reversed(lat):
-        rel = U(f"By_Date/{d}/{com_safe(com)}/{fn}")
+        src, length = audio(d, com, fn)
         lrows.append(
             f'<tr><td class="dt">{d}</td><td class="dt">{t}</td>'
             f'<td class="nm"><a href="species/{slugs[com]}.html">{E(com)}</a></td>'
-            f'<td class="num">{conf:.2f}</td>'
-            f'<td><button class="play" data-src="{rel}" '
-            f'aria-label="Play {E(com)} {d} {t}">&#9654; Play</button></td></tr>'
+            f'<td class="num">{conf:.2f}</td><td class="num">{length}</td>'
+            f'<td>{play_btn(src, com, d, t)}</td></tr>'
         )
 
-    busiest = max(lat_per_day.items(), key=lambda kv: kv[1]) if lat_per_day else ("-", 0)
     lstats = f"""<section class="kpis">
 <div class="kpi"><span class="n">{len(lat):,}</span><span class="l">detections</span></div>
 <div class="kpi"><span class="n">{len(lat_species)}</span><span class="l">species</span></div>
 <div class="kpi"><span class="n">{len(lat_per_day)}</span><span class="l">days with activity</span></div>
-<div class="kpi"><span class="n">{busiest[1]:,}</span><span class="l">busiest day ({busiest[0][5:]})</span></div>
 </section>""".replace(",", " ")
 
     lbody = f"""{lstats}
-<section class="card"><h2>Detections per day</h2>{column_chart(lat_pairs)}</section>
-
 <section class="card"><h2>Recordings</h2>
 <p class="note">Newest first, every species together. Filter by name, then press Play &mdash;
 all rows share the one player above the table.</p>
 <div class="player"><audio id="au" controls preload="none"></audio><span id="now" class="now"></span></div>
-<input id="filter" class="filter" type="search" placeholder="Filter species&hellip;" autocomplete="off">
+<input class="filter" data-table="sp" type="search" placeholder="Filter species&hellip;" autocomplete="off">
 <div class="tablewrap"><table id="sp">
 <thead><tr><th>Date</th><th>Time</th><th>Species</th>
-<th class="num">Confidence</th><th></th></tr></thead>
+<th class="num">Confidence</th><th class="num">Length</th><th></th></tr></thead>
 <tbody>{''.join(lrows)}</tbody></table></div></section>"""
 
     with open(os.path.join(ARCHIVE, "latest.html"), "w") as f:
@@ -310,16 +379,19 @@ all rows share the one player above the table.</p>
         sci = recs[0][2]
         best = max(r[3] for r in recs)
         sp_day = Counter(r[0] for r in recs)
-        sp_pairs = [(d[5:], sp_day.get(d, 0), f"{d}: {sp_day.get(d,0)}") for d in span]
+        # presence, not counts: one stationary bird can log 50 detections a day,
+        # so the bar height says only "heard that day"; the count is in the tooltip
+        sp_pairs = [(d[5:], 1 if sp_day.get(d) else 0,
+                     f"{d}: heard ({sp_day[d]} detections)" if sp_day.get(d) else f"{d}: not heard")
+                    for d in span]
 
         lines = []
         for d, t, _sci, conf, fn in reversed(recs):
-            rel = U(f"By_Date/{d}/{com_safe(com)}/{fn}")
+            src, length = audio(d, com, fn, prefix="../")
             lines.append(
                 f'<tr><td class="dt">{d}</td><td class="dt">{t}</td>'
-                f'<td class="num">{conf:.2f}</td>'
-                f'<td><button class="play" data-src="../{rel}" '
-                f'aria-label="Play {E(com)} {d} {t}">&#9654; Play</button></td></tr>'
+                f'<td class="num">{conf:.2f}</td><td class="num">{length}</td>'
+                f'<td>{play_btn(src, com, d, t)}</td></tr>'
             )
 
         sbody = f"""<section class="kpis">
@@ -327,12 +399,12 @@ all rows share the one player above the table.</p>
 <div class="kpi"><span class="n">{best:.2f}</span><span class="l">best confidence</span></div>
 <div class="kpi"><span class="n">{len(sp_day)}</span><span class="l">days heard</span></div>
 </section>
-<section class="card"><h2>Detections per day</h2>{column_chart(sp_pairs)}</section>
+<section class="card"><h2>Days heard</h2>{column_chart(sp_pairs, height=90, axis=False)}</section>
 <section class="card"><h2>Recordings</h2>
 <p class="note">Newest first. Audio plays from <code>By_Date/</code> in this folder.</p>
 <div class="player"><audio id="au" controls preload="none"></audio><span id="now" class="now"></span></div>
 <div class="tablewrap"><table><thead><tr><th>Date</th><th>Time</th>
-<th class="num">Confidence</th><th></th></tr></thead>
+<th class="num">Confidence</th><th class="num">Length</th><th></th></tr></thead>
 <tbody>{''.join(lines)}</tbody></table></div></section>"""
 
         with open(os.path.join(ARCHIVE, "species", f"{slugs[com]}.html"), "w") as f:
@@ -412,8 +484,12 @@ th.num{text-align:right}
 .sci{display:block;color:var(--text-muted);font-size:11px;font-style:italic}
 .barcell{width:34%;min-width:80px}
 .minibar{display:block;height:7px;border-radius:4px;background:var(--series-1);min-width:2px}
-.play{border:1px solid var(--border);background:var(--surface-0);color:var(--text-primary);
+.play{display:inline-block;border:1px solid var(--border);background:var(--surface-0);
+  color:var(--text-primary);text-decoration:none;
   border-radius:7px;padding:4px 11px;font-size:12px;cursor:pointer;white-space:nowrap}
+.now a{color:var(--series-1)}
+tr.newday td{border-top:2px solid var(--border)}
+.more{margin:14px 0 0}
 .play:hover{border-color:var(--series-1);color:var(--series-1)}
 .play.on{background:var(--series-1);border-color:var(--series-1);color:#fff}
 .player{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;
@@ -451,29 +527,54 @@ JS = """// Hover tooltips for chart marks, and one shared audio player per page.
     });
   }
 
+  // Play buttons are plain links to the mp3, so the file stays reachable if
+  // scripted playback fails; here they are routed into the shared player.
+  // Failures are shown, never swallowed, with the direct link as a way out.
   var au = document.getElementById('au'), now = document.getElementById('now'), cur = null;
+  function say(text, href) {
+    if (!now) return;
+    now.textContent = text;
+    if (href) {
+      var a = document.createElement('a');
+      a.href = href; a.textContent = 'open the file directly';
+      now.appendChild(document.createTextNode(' \\u2014 '));
+      now.appendChild(a);
+    }
+  }
   if (au) {
     document.addEventListener('click', function (e) {
       var b = e.target.closest('.play');
-      if (!b) return;
+      if (!b || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      e.preventDefault();
       if (cur) cur.classList.remove('on');
       b.classList.add('on'); cur = b;
       au.src = b.getAttribute('data-src');
-      if (now) now.textContent = decodeURIComponent(b.getAttribute('data-src').split('/').pop());
-      au.play().catch(function () {});
+      au.load();
+      say(decodeURIComponent(au.getAttribute('src').split('/').pop()));
+      var p = au.play();
+      if (p && p.catch) p.catch(function (err) {
+        if (err && err.name === 'AbortError') return;  // superseded by a newer click
+        say('Could not play: ' + (err && (err.message || err.name)), b.getAttribute('href'));
+      });
+    });
+    au.addEventListener('error', function () {
+      var c = au.error ? au.error.code : '?';
+      say('Could not load this recording (media error ' + c + ')', au.getAttribute('src'));
+      if (cur) cur.classList.remove('on');
     });
     au.addEventListener('ended', function () { if (cur) cur.classList.remove('on'); });
   }
 
-  var f = document.getElementById('filter');
-  if (f) {
+  document.querySelectorAll('.filter[data-table]').forEach(function (f) {
+    var rows = document.querySelectorAll('#' + f.getAttribute('data-table') + ' tbody tr');
     f.addEventListener('input', function () {
       var q = f.value.trim().toLowerCase();
-      document.querySelectorAll('#sp tbody tr').forEach(function (tr) {
-        tr.hidden = q && tr.querySelector('.nm').textContent.toLowerCase().indexOf(q) === -1;
+      rows.forEach(function (tr) {
+        var nm = tr.querySelector('.nm');
+        tr.hidden = !!(q && nm && nm.textContent.toLowerCase().indexOf(q) === -1);
       });
     });
-  }
+  });
 })();
 """
 

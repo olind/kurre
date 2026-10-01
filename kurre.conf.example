@@ -28,5 +28,8 @@
 # generated HTML. Point it at a cloud folder if you want it synced.
 : "${KURRE_ARCHIVE:=$HOME/kurre-archive}"
 
+# "Recently heard" window at the top of index.html, in days.
+: "${KURRE_RECENT_DAYS:=10}"
+
 # Rolling window shown on latest.html, in days.
 : "${KURRE_LATEST_DAYS:=14}"
