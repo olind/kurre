@@ -41,7 +41,7 @@
 # --- on the Pi (kurre-push.sh) ---
 # Where to upload. "host:" means the root of the directory the ssh key is
 # locked to with rrsync; a plain local path also works, for testing.
-# : "${KURRE_UPLOAD_TARGET:=kurre-ui:}"
+# : "${KURRE_UPLOAD_TARGET:=kurre-upload:}"
 # : "${KURRE_PI_DB:=$HOME/BirdNET-Pi/scripts/birds.db}"
 # : "${KURRE_PI_AUDIO:=$HOME/BirdSongs/Extracted/By_Date/}"
 

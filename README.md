@@ -105,10 +105,12 @@ Then add its **public** half on the server, locked to the inbox, in
 restrict,command="rrsync -wo -no-del -munge /srv/kurre/inbox" ssh-ed25519 AAAA... kurre-upload
 ```
 
-Add an alias for the server in the Pi's `~/.ssh/config`:
+Add an alias for the upload in the Pi's `~/.ssh/config`. Name it after the job,
+not the server: if a login alias elsewhere uses the server's name, one name
+meaning two things on two machines invites mistakes.
 
 ```
-Host kurre-ui
+Host kurre-upload
     HostName <server address on the VPN>
     User kurre-upload
     IdentityFile ~/.ssh/kurre-upload
@@ -158,7 +160,7 @@ KURRE_HOST=otherpi ./kurre-sync.sh
 | `KURRE_REMOTE_AUDIO` | `$KURRE_REMOTE_HOME/BirdSongs/Extracted/By_Date/` | extraction folder |
 | `KURRE_ARCHIVE` | `~/kurre-archive` | where the archive is built |
 | `KURRE_DB` | `$KURRE_ARCHIVE/birds.db` | database the report reads; on a server, put it outside the web root |
-| `KURRE_UPLOAD_TARGET` | — | push mode, on the Pi: where to upload, e.g. `kurre-ui:` |
+| `KURRE_UPLOAD_TARGET` | — | push mode, on the Pi: where to upload, e.g. `kurre-upload:` |
 | `KURRE_INBOX` | — | push mode, on the server: where the Pi uploads |
 | `KURRE_RECENT_DAYS` | `10` | "Recently heard" window on `index.html` |
 | `KURRE_LATEST_DAYS` | `14` | rolling window on `latest.html` |

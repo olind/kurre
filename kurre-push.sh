@@ -22,7 +22,7 @@ done
 
 : "${KURRE_PI_DB:=$HOME/BirdNET-Pi/scripts/birds.db}"
 : "${KURRE_PI_AUDIO:=$HOME/BirdSongs/Extracted/By_Date/}"
-: "${KURRE_UPLOAD_TARGET:?set KURRE_UPLOAD_TARGET in kurre.conf, e.g. kurre-ui:}"
+: "${KURRE_UPLOAD_TARGET:?set KURRE_UPLOAD_TARGET in kurre.conf, e.g. kurre-upload:}"
 
 # "host:" (rrsync root) is used as is; a plain directory gets a trailing slash.
 T="$KURRE_UPLOAD_TARGET"
