@@ -59,7 +59,10 @@ Pi   kurre-push.sh   (cron)  ── ssh/rsync ──▶  server inbox/
 ```
 
 - **The Pi's key can write to the inbox and nowhere else.** It is locked with
-  `rrsync`, so it cannot open a shell or touch the web root.
+  `rrsync -wo -no-del -munge`: it cannot open a shell, read anything back,
+  delete anything, or plant a working symlink.
+- **Symlinks never reach the web root**, even if one lands in the inbox, so the
+  web server cannot be pointed at other files on the machine.
 - **Only `*.mp3` crosses from the inbox to the web root.** Anything else that lands
   in the inbox is never served.
 - **The database stays outside the web root.** Every row carries the station's
@@ -72,19 +75,22 @@ Pi   kurre-push.sh   (cron)  ── ssh/rsync ──▶  server inbox/
 
 ### Setup
 
-On the **server**, as root (`kurre-upload` writes the inbox, and `www-data` stands
-in for whichever user runs the build):
+On the **server**, as root. One service account, `kurre-upload`, both receives
+the uploads and runs the build:
 
 ```sh
+apt install rsync sqlite3 git            # rrsync ships with rsync
 useradd --system --create-home --shell /bin/bash kurre-upload
 mkdir -p /srv/kurre/inbox /srv/kurre/state /var/www/kurre
-chown kurre-upload: /srv/kurre/inbox
-chown www-data: /srv/kurre/state /var/www/kurre
+chown -R kurre-upload: /srv/kurre /var/www/kurre
 git clone https://github.com/olind/kurre /opt/kurre
 ```
 
-The inbox and the web root must be on the same filesystem for the mp3s to be
-hard links rather than copies.
+**The build must run as the same user that owns the inbox.** Debian (and most
+distributions) set `fs.protected_hardlinks=1`, which forbids hard-linking a file
+you do not own, so a build running as anyone else fails on the mp3s. The
+upload key is still confined by `rrsync` either way. The inbox and the web root
+must also be on the same filesystem for the hard links to work.
 
 On the **Pi**, create a key that is used for nothing else:
 
@@ -96,7 +102,7 @@ Then add its **public** half on the server, locked to the inbox, in
 `~kurre-upload/.ssh/authorized_keys`:
 
 ```
-restrict,command="rrsync /srv/kurre/inbox" ssh-ed25519 AAAA... kurre-upload
+restrict,command="rrsync -wo -no-del -munge /srv/kurre/inbox" ssh-ed25519 AAAA... kurre-upload
 ```
 
 Add an alias for the server in the Pi's `~/.ssh/config`:
@@ -116,7 +122,7 @@ machine. Then schedule it, on the Pi with `crontab -e`:
 15 * * * *  $HOME/kurre/kurre-push.sh >> $HOME/kurre-push.log 2>&1
 ```
 
-and on the server, for the build user:
+and on the server, for `kurre-upload` (`crontab -u kurre-upload -e`):
 
 ```
 */10 * * * *  /opt/kurre/kurre-build.sh >> /srv/kurre/state/build.log 2>&1

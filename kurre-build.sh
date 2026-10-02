@@ -53,7 +53,9 @@ say "=== kurre-build (config: ${KURRE_CONF_USED:-none}) ==="
 
 # Audio before database, so every merged row already has its mp3 in place.
 mkdir -p "$KURRE_ARCHIVE/By_Date"
-rsync -a --include='*/' --include='*.mp3' --exclude='*' \
+# --no-links: a symlink named *.mp3 in the inbox must never reach the web root,
+# where the web server would follow it out of the archive.
+rsync -a --no-links --include='*/' --include='*.mp3' --exclude='*' \
   --link-dest="$KURRE_INBOX/By_Date/" "$KURRE_INBOX/By_Date/" "$KURRE_ARCHIVE/By_Date/"
 
 COUNTS=$("$SCRIPT_DIR/kurre-merge.sh" "$STAGE/snapshot.db" "$KURRE_DB")
