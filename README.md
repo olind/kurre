@@ -46,6 +46,85 @@ index is ~50 KB) and the mp3s are shared as the folder they already are.
 `kurre-report.py` is run automatically at the end of every `kurre-sync.sh`, so
 normally you only ever run the first command.
 
+## Pi pushes, server builds
+
+Instead of a computer pulling from the Pi, the Pi can push to a server on a
+schedule, and the server builds and serves the HTML. Nothing else is involved.
+
+```
+Pi   kurre-push.sh   (cron)  ── ssh/rsync ──▶  server inbox/
+                                                 │  kurre-build.sh (cron)
+                                                 ├─▶ birds.db         private
+                                                 └─▶ web root         HTML + mp3s only
+```
+
+- **The Pi's key can write to the inbox and nowhere else.** It is locked with
+  `rrsync`, so it cannot open a shell or touch the web root.
+- **Only `*.mp3` crosses from the inbox to the web root.** Anything else that lands
+  in the inbox is never served.
+- **The database stays outside the web root.** Every row carries the station's
+  latitude and longitude.
+- **Audio is uploaded before the database**, so the server never builds a page for
+  a detection whose mp3 has not arrived yet. The database snapshot is renamed into
+  place by rsync, so a build never reads half a file.
+- **`kurre-build.sh` does nothing unless a new snapshot has arrived**, so it can run
+  every few minutes.
+
+### Setup
+
+On the **server**, as root (`kurre-upload` writes the inbox, and `www-data` stands
+in for whichever user runs the build):
+
+```sh
+useradd --system --create-home --shell /bin/bash kurre-upload
+mkdir -p /srv/kurre/inbox /srv/kurre/state /var/www/kurre
+chown kurre-upload: /srv/kurre/inbox
+chown www-data: /srv/kurre/state /var/www/kurre
+git clone https://github.com/olind/kurre /opt/kurre
+```
+
+The inbox and the web root must be on the same filesystem for the mp3s to be
+hard links rather than copies.
+
+On the **Pi**, create a key that is used for nothing else:
+
+```sh
+ssh-keygen -t ed25519 -N '' -C kurre-upload -f ~/.ssh/kurre-upload
+```
+
+Then add its **public** half on the server, locked to the inbox, in
+`~kurre-upload/.ssh/authorized_keys`:
+
+```
+restrict,command="rrsync /srv/kurre/inbox" ssh-ed25519 AAAA... kurre-upload
+```
+
+Add an alias for the server in the Pi's `~/.ssh/config`:
+
+```
+Host kurre-ui
+    HostName <server address on the VPN>
+    User kurre-upload
+    IdentityFile ~/.ssh/kurre-upload
+    IdentitiesOnly yes
+```
+
+Set the variables from the "Push mode" block of `kurre.conf.example` on each
+machine. Then schedule it, on the Pi with `crontab -e`:
+
+```
+15 * * * *  $HOME/kurre/kurre-push.sh >> $HOME/kurre-push.log 2>&1
+```
+
+and on the server, for the build user:
+
+```
+*/10 * * * *  /opt/kurre/kurre-build.sh >> /srv/kurre/state/build.log 2>&1
+```
+
+Run each by hand once first: `kurre-push.sh --dry-run` on the Pi, then
+`kurre-push.sh` and `kurre-build.sh --force`.
+
 ## Configuration
 
 Copy the example and edit it:
@@ -72,6 +151,9 @@ KURRE_HOST=otherpi ./kurre-sync.sh
 | `KURRE_REMOTE_DB` | `$KURRE_REMOTE_HOME/BirdNET-Pi/scripts/birds.db` | the live database |
 | `KURRE_REMOTE_AUDIO` | `$KURRE_REMOTE_HOME/BirdSongs/Extracted/By_Date/` | extraction folder |
 | `KURRE_ARCHIVE` | `~/kurre-archive` | where the archive is built |
+| `KURRE_DB` | `$KURRE_ARCHIVE/birds.db` | database the report reads; on a server, put it outside the web root |
+| `KURRE_UPLOAD_TARGET` | — | push mode, on the Pi: where to upload, e.g. `kurre-ui:` |
+| `KURRE_INBOX` | — | push mode, on the server: where the Pi uploads |
 | `KURRE_RECENT_DAYS` | `10` | "Recently heard" window on `index.html` |
 | `KURRE_LATEST_DAYS` | `14` | rolling window on `latest.html` |
 

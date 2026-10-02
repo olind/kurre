@@ -90,37 +90,8 @@ if [ "$DRY_RUN" = 1 ]; then
   exit 0
 fi
 
-# Merge in a staging copy, never in place. SQLite journal files inside iCloud
-# Drive are a corruption risk if iCloud syncs mid-write; the final mv is atomic.
-WORK="$STAGE/archive.db"
-[ -f "$ARCHIVE_DB" ] && cp "$ARCHIVE_DB" "$WORK"
-BEFORE=$([ -f "$WORK" ] && sqlite3 "$WORK" "SELECT COUNT(*) FROM detections;" || echo 0)
-
-sqlite3 "$WORK" > /dev/null <<SQL
-PRAGMA journal_mode=DELETE;
-CREATE TABLE IF NOT EXISTS detections (
-  Date DATE, Time TIME,
-  Sci_Name VARCHAR(100) NOT NULL, Com_Name VARCHAR(100) NOT NULL,
-  Confidence FLOAT, Lat FLOAT, Lon FLOAT, Cutoff FLOAT,
-  Week INT, Sens FLOAT, Overlap FLOAT, File_Name VARCHAR(100) NOT NULL);
-CREATE INDEX IF NOT EXISTS detections_Com_Name  ON detections (Com_Name);
-CREATE INDEX IF NOT EXISTS detections_Sci_Name  ON detections (Sci_Name);
-CREATE INDEX IF NOT EXISTS detections_Date_Time ON detections (Date DESC, Time DESC);
--- Identity of a detection. Makes re-syncing the same rows a no-op, while never
--- collapsing two genuinely different detections.
-CREATE UNIQUE INDEX IF NOT EXISTS detections_identity
-  ON detections (Date, Time, Sci_Name, File_Name);
-ATTACH DATABASE '$STAGE/snapshot.db' AS snap;
-INSERT OR IGNORE INTO detections
-  (Date,Time,Sci_Name,Com_Name,Confidence,Lat,Lon,Cutoff,Week,Sens,Overlap,File_Name)
-  SELECT Date,Time,Sci_Name,Com_Name,Confidence,Lat,Lon,Cutoff,Week,Sens,Overlap,File_Name
-  FROM snap.detections;
-DETACH DATABASE snap;
-SQL
-
-AFTER=$(sqlite3 "$WORK" "SELECT COUNT(*) FROM detections;")
-cp "$WORK" "$ARCHIVE_DB.tmp" && mv -f "$ARCHIVE_DB.tmp" "$ARCHIVE_DB"
-
+COUNTS=$("$SCRIPT_DIR/kurre-merge.sh" "$STAGE/snapshot.db" "$ARCHIVE_DB")
+read -r BEFORE AFTER <<< "$COUNTS"
 say "database merged: $BEFORE -> $AFTER rows (+$((AFTER-BEFORE)) new)"
 say "archive spans $(sqlite3 "$ARCHIVE_DB" "SELECT MIN(Date)||' to '||MAX(Date) FROM detections;")"
 say "distinct species: $(sqlite3 "$ARCHIVE_DB" "SELECT COUNT(DISTINCT Com_Name) FROM detections;")"

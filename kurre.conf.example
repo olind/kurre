@@ -33,3 +33,22 @@
 
 # Rolling window shown on latest.html, in days.
 : "${KURRE_LATEST_DAYS:=14}"
+
+# ---------------------------------------------------------------------------
+# Push mode: the Pi uploads, a server builds. Leave these commented out if you
+# only use kurre-sync.sh. See "Pi pushes, server builds" in the README.
+
+# --- on the Pi (kurre-push.sh) ---
+# Where to upload. "host:" means the root of the directory the ssh key is
+# locked to with rrsync; a plain local path also works, for testing.
+# : "${KURRE_UPLOAD_TARGET:=kurre-ui:}"
+# : "${KURRE_PI_DB:=$HOME/BirdNET-Pi/scripts/birds.db}"
+# : "${KURRE_PI_AUDIO:=$HOME/BirdSongs/Extracted/By_Date/}"
+
+# --- on the server (kurre-build.sh) ---
+# The upload inbox, the private database, and the web root. Keep the database
+# OUT of the web root: every row holds the station's latitude and longitude.
+# The web root is KURRE_ARCHIVE above: change THAT line (e.g. to /var/www/kurre).
+# Adding a second one here would do nothing, since ":=" keeps the first value.
+# : "${KURRE_INBOX:=/srv/kurre/inbox}"
+# : "${KURRE_DB:=/srv/kurre/state/birds.db}"

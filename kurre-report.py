@@ -9,6 +9,7 @@ works from a USB drive, a zip, or file:// with no server and no network.
 
 Usage:  kurre-report.py [archive_dir]
 
+KURRE_DB (default <archive_dir>/birds.db) is the database to read.
 KURRE_RECENT_DAYS (default 10) sets the "Recently heard" window on index.html.
 KURRE_LATEST_DAYS (default 14) sets the rolling window on latest.html.
 """
@@ -201,7 +202,9 @@ def page(title, body, depth=0, subtitle=""):
 
 # ------------------------------------------------------------------ main --
 def main():
-    db_path = os.path.join(ARCHIVE, "birds.db")
+    # KURRE_DB lets a server keep the database (which holds the station's
+    # coordinates) outside the web root that the HTML is written into.
+    db_path = os.path.expanduser(os.environ.get("KURRE_DB") or os.path.join(ARCHIVE, "birds.db"))
     if not os.path.exists(db_path):
         sys.exit(f"ERROR: no database at {db_path}")
     db = sqlite3.connect(db_path)
