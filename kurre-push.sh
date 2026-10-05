@@ -50,6 +50,9 @@ rsync "${RSYNC_OPTS[@]}" --exclude='*.png' --stats "$KURRE_PI_AUDIO" "${T}By_Dat
 sqlite3 "$KURRE_PI_DB" ".backup '$STAGE/snapshot.db'"
 say "snapshot: $(sqlite3 "$STAGE/snapshot.db" "SELECT COUNT(*) FROM detections;") detections"
 # rsync writes to a temp name and renames, so the server never reads a half file.
-rsync "${RSYNC_OPTS[@]}" "$STAGE/snapshot.db" "${T}snapshot.db"
+# Target the directory, not "${T}snapshot.db": with an rrsync-locked key and
+# rsync 3.5.0 on the server, naming the file fails to replace an existing one
+# ("delete_file: unlink(4) failed: Operation not permitted").
+rsync "${RSYNC_OPTS[@]}" "$STAGE/snapshot.db" "$T"
 
 say "=== done ==="
